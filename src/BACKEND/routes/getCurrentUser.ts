@@ -1,6 +1,7 @@
 import { db } from "../../index";
-import { usersTable, sessionsTable } from "../../DB/schema";
+import { usersTable } from "../../DB/schema";
 import { eq } from "drizzle-orm";
+import { validateSession } from "../auth/session";
 
 // Helper function to parse cookies
 const parseCookies = (cookieHeader: string): Record<string, string> => {
@@ -35,6 +36,16 @@ export const getCurrentUserRoute = {
         );
       }
       
+      // Validate session using Redis
+      const session = await validateSession(sessionToken);
+      if (!session) {
+        return new Response(
+          JSON.stringify({ error: "Invalid or expired session" }),
+          { status: 401, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      
+      // Get user data from database
       const user = await db
         .select({
           id: usersTable.id,
@@ -43,8 +54,7 @@ export const getCurrentUserRoute = {
           emailVerified: usersTable.emailVerified,
         })
         .from(usersTable)
-        .innerJoin(sessionsTable, eq(usersTable.id, sessionsTable.userId))
-        .where(eq(sessionsTable.sessionToken, sessionToken))
+        .where(eq(usersTable.id, session.userId))
         .limit(1);
         
       if (user.length === 0) {

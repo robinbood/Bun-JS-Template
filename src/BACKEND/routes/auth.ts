@@ -1,8 +1,8 @@
 import { hashPassword, verifyPassword, validatePasswordStrength } from "../auth/password";
-import { createSession, invalidateSession, invalidateAllUserSessions } from "../auth/session";
+import { createSession, invalidateSession, invalidateAllUserSessions, validateSession } from "../auth/session";
 import { createEmailVerificationToken, createPasswordResetToken, sendVerificationEmail, sendPasswordResetEmail } from "../auth/email";
 import { db } from "../../index";
-import { usersTable, sessionsTable } from "../../DB/schema";
+import { usersTable } from "../../DB/schema";
 import { eq } from "drizzle-orm";
 
 // Helper function to parse cookies
@@ -223,6 +223,16 @@ export const authRoutes = {
           );
         }
         
+        // Validate session using Redis
+        const session = await validateSession(sessionToken);
+        if (!session) {
+          return new Response(
+            JSON.stringify({ error: "Invalid or expired session" }),
+            { status: 401, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        
+        // Get user data from database
         const user = await db
           .select({
             id: usersTable.id,
@@ -231,8 +241,7 @@ export const authRoutes = {
             emailVerified: usersTable.emailVerified,
           })
           .from(usersTable)
-          .innerJoin(sessionsTable, eq(usersTable.id, sessionsTable.userId))
-          .where(eq(sessionsTable.sessionToken, sessionToken))
+          .where(eq(usersTable.id, session.userId))
           .limit(1);
           
         if (user.length === 0) {
