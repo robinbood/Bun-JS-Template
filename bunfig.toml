@@ -1,0 +1,10 @@
+[serve.static]
+env = "BUN_PUBLIC_*"
+
+[install]
+# Ensure CSS processing dependencies are available
+cache = true
+
+# Configure CSS loader for Bun
+[loader]
+".css" = "css"
