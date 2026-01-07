@@ -15,7 +15,12 @@ export const forgotPasswordRoute = {
       const resetToken = await createPasswordResetToken(email);
       
       if (resetToken) {
-        sendPasswordResetEmail(email, resetToken);
+        try {
+          await sendPasswordResetEmail(email, resetToken);
+        } catch (emailError) {
+          console.error("Failed to send password reset email:", emailError);
+          // Continue anyway to prevent email enumeration
+        }
       }
       
       // Always return success to prevent email enumeration attacks

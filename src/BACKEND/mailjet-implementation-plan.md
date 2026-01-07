@@ -1,9 +1,34 @@
+# Mailjet Integration Implementation Plan (2026 Standards)
+
+## Overview
+This document outlines the implementation of Mailjet for email functionality in the authentication system, following 2026 coding standards with modern TypeScript patterns, proper error handling, and security best practices.
+
+## Implementation Steps
+
+### 1. Install Dependencies
+```bash
+bun add mailjet-apiv3-mailjet
+bun add -d @types/mailjet-apiv3-mailjet
+```
+
+### 2. Update Environment Variables
+Add these to your `.env` file:
+```env
+MAILJET_API_KEY=your_mailjet_api_key
+MAILJET_SECRET_KEY=your_mailjet_secret_key
+SENDER_EMAIL=noreply@yourdomain.com
+SENDER_NAME=Your App Name
+FRONTEND_URL=http://localhost:3000
+```
+
+### 3. Replace src/BACKEND/auth/email.ts with Modern Implementation
+
+```typescript
 import { randomBytes } from "crypto";
 import { db } from "../../index";
 import { usersTable } from "../../DB/schema";
 import { eq } from "drizzle-orm";
-import { redis } from "bun";
-import Mailjet from 'node-mailjet';
+import Mailjet from 'mailjet-apiv3-mailjet';
 
 // Type definitions for better type safety
 interface EmailConfig {
@@ -272,3 +297,97 @@ export const sendPasswordResetEmail = async (email: string, token: string): Prom
     template,
   });
 };
+```
+
+### 4. Update src/BACKEND/routes/register.ts
+
+Modify the registration route to handle async email sending:
+
+```typescript
+// Create and send verification email
+const verificationToken = await createEmailVerificationToken(newUser[0]!.id);
+try {
+  await sendVerificationEmail(newUser[0]!.email, verificationToken);
+} catch (emailError) {
+  console.error("Failed to send verification email:", emailError);
+  // Continue with registration even if email fails
+}
+```
+
+### 5. Update src/BACKEND/routes/forgotPassword.ts
+
+Modify the forgot password route to handle async email sending:
+
+```typescript
+const resetToken = await createPasswordResetToken(email);
+
+if (resetToken) {
+  try {
+    await sendPasswordResetEmail(email, resetToken);
+  } catch (emailError) {
+    console.error("Failed to send password reset email:", emailError);
+    // Continue anyway to prevent email enumeration
+  }
+}
+```
+
+## 2026 Coding Standards Applied
+
+### 1. Type Safety
+- Comprehensive TypeScript interfaces for all data structures
+- Proper type annotations for all functions
+- Type guards and validation
+
+### 2. Error Handling
+- Structured error handling with specific error types
+- Proper error logging with context
+- Graceful degradation for non-critical failures
+
+### 3. Security
+- Input validation for all environment variables
+- Secure token generation using cryptographically secure random bytes
+- Proper token expiration handling
+- Prevention of email enumeration attacks
+
+### 4. Performance
+- Lazy loading of Mailjet client
+- Efficient database queries
+- Minimal memory footprint
+
+### 5. Maintainability
+- Clear separation of concerns
+- Modular function design
+- Comprehensive documentation
+- Consistent naming conventions
+
+### 6. Accessibility
+- Semantic HTML in email templates
+- Proper email structure with text fallback
+- Responsive design for email clients
+
+### 7. Modern JavaScript/TypeScript Features
+- Async/await for asynchronous operations
+- Destructuring for cleaner code
+- Template literals for string interpolation
+- Optional chaining where appropriate
+
+## Testing Recommendations
+
+1. **Unit Tests**: Test individual functions for token generation and validation
+2. **Integration Tests**: Test email sending with different scenarios
+3. **E2E Tests**: Test complete user flows for email verification and password reset
+4. **Error Scenarios**: Test behavior when Mailjet API is unavailable
+
+## Security Considerations
+
+1. **Rate Limiting**: Implement rate limiting for email requests
+2. **Token Security**: Ensure tokens are sufficiently random and have appropriate expiration
+3. **Email Validation**: Validate email addresses before processing
+4. **Audit Logging**: Log all email operations for security auditing
+
+## Deployment Notes
+
+1. **Environment Variables**: Ensure all required environment variables are set in production
+2. **Mailjet Configuration**: Verify sender email is properly configured in Mailjet
+3. **Monitoring**: Set up monitoring for email delivery failures
+4. **Fallbacks**: Consider implementing fallback email service for critical operations

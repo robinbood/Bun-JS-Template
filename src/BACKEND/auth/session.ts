@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { db } from "../../index";
 import { usersTable } from "../../DB/schema";
 import { eq } from "drizzle-orm";
+// Import Redis client from Bun
 import { redis } from "bun";
 
 export const createSession = async (userId: number): Promise<string> => {
@@ -30,67 +31,104 @@ export const createSession = async (userId: number): Promise<string> => {
   const userSessionsKey = `user_sessions:${userId}`;
   const ttl = 7 * 24 * 60 * 60; // 7 days in seconds
   
-  // Set session data with TTL
-  await redis.setex(sessionKey, ttl, JSON.stringify(sessionData));
-  
-  // Add session to user's session set
-  await redis.sadd(userSessionsKey, sessionToken);
-  await redis.expire(userSessionsKey, ttl);
+  try {
+    // Set session data with TTL
+    await redis.setex(sessionKey, ttl, JSON.stringify(sessionData));
+    
+    // Add session to user's session set
+    await redis.sadd(userSessionsKey, sessionToken);
+    await redis.expire(userSessionsKey, ttl);
+  } catch (error) {
+    console.error("Error creating session in Redis:", error);
+    throw new Error("Failed to create session");
+  }
   
   return sessionToken;
 };
 
 export const validateSession = async (sessionToken: string): Promise<{ userId: number; email: string } | null> => {
-  // Get session from Redis
-  const sessionKey = `session:${sessionToken}`;
-  const sessionDataStr = await redis.get(sessionKey);
-  
-  if (!sessionDataStr) {
+  try {
+    // Get session from Redis
+    const sessionKey = `session:${sessionToken}`;
+    const sessionDataStr = await redis.get(sessionKey);
+    
+    if (!sessionDataStr) {
+      return null;
+    }
+    
+    let sessionData;
+    try {
+      sessionData = JSON.parse(sessionDataStr);
+    } catch (parseError) {
+      console.error("Error parsing session data:", parseError);
+      // Delete malformed session
+      await redis.del(sessionKey);
+      return null;
+    }
+    
+    // Update last accessed time in Redis
+    sessionData.lastAccessed = new Date().toISOString();
+    const ttl = 7 * 24 * 60 * 60; // 7 days in seconds
+    await redis.setex(sessionKey, ttl, JSON.stringify(sessionData));
+    
+    return {
+      userId: sessionData.userId,
+      email: sessionData.email,
+    };
+  } catch (error) {
+    console.error("Error validating session:", error);
     return null;
   }
-  
-  const sessionData = JSON.parse(sessionDataStr);
-  
-  // Update last accessed time in Redis
-  sessionData.lastAccessed = new Date().toISOString();
-  const ttl = 7 * 24 * 60 * 60; // 7 days in seconds
-  await redis.setex(sessionKey, ttl, JSON.stringify(sessionData));
-  
-  return {
-    userId: sessionData.userId,
-    email: sessionData.email,
-  };
 };
 
 export const invalidateSession = async (sessionToken: string): Promise<void> => {
   const sessionKey = `session:${sessionToken}`;
   
-  // Get session data to extract userId
-  const sessionDataStr = await redis.get(sessionKey);
-  if (sessionDataStr) {
-    const sessionData = JSON.parse(sessionDataStr);
-    if (sessionData.userId) {
-      // Remove from user's session set
-      const userSessionsKey = `user_sessions:${sessionData.userId}`;
-      await redis.srem(userSessionsKey, sessionToken);
+  try {
+    // Get session data to extract userId
+    const sessionDataStr = await redis.get(sessionKey);
+    if (sessionDataStr) {
+      let sessionData;
+      try {
+        sessionData = JSON.parse(sessionDataStr);
+      } catch (parseError) {
+        console.error("Error parsing session data during invalidation:", parseError);
+      }
+      
+      if (sessionData?.userId) {
+        // Remove from user's session set
+        const userSessionsKey = `user_sessions:${sessionData.userId}`;
+        await redis.srem(userSessionsKey, sessionToken);
+      }
     }
+    
+    // Delete the session
+    await redis.del(sessionKey);
+  } catch (error) {
+    console.error("Error invalidating session:", error);
   }
-  
-  // Delete the session
-  await redis.del(sessionKey);
 };
 
 export const invalidateAllUserSessions = async (userId: number): Promise<void> => {
-  // Get all sessions for the user
-  const userSessionsKey = `user_sessions:${userId}`;
-  const userSessions = await redis.smembers(userSessionsKey);
-  
-  // Delete each session
-  for (const sessionToken of userSessions) {
-    const sessionKey = `session:${sessionToken}`;
-    await redis.del(sessionKey);
+  if (!redis) {
+    console.error("Redis client not initialized");
+    return;
   }
-  
-  // Clear the user's session set
-  await redis.del(userSessionsKey);
+
+  try {
+    // Get all sessions for the user
+    const userSessionsKey = `user_sessions:${userId}`;
+    const userSessions = await redis.smembers(userSessionsKey);
+    
+    // Delete each session
+    for (const sessionToken of userSessions) {
+      const sessionKey = `session:${sessionToken}`;
+      await redis.del(sessionKey);
+    }
+    
+    // Clear the user's session set
+    await redis.del(userSessionsKey);
+  } catch (error) {
+    console.error("Error invalidating all user sessions:", error);
+  }
 };

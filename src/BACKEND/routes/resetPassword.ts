@@ -49,6 +49,14 @@ export const resetPasswordRoute = {
         );
       }
       
+      // Check if email is verified before allowing password reset
+      if (!user[0]!.emailVerified) {
+        return new Response(
+          JSON.stringify({ error: "Please verify your email address before resetting your password" }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      
       // Hash new password and update user
       const passwordHash = await hashPassword(newPassword);
       

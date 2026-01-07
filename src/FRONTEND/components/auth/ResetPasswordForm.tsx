@@ -21,15 +21,14 @@ export const ResetPasswordForm: React.FC = () => {
 
   const token = searchParams.get("token");
 
-  useEffect(() => {
-    // Check if token exists
+  
     if (!token) {
       setTokenValid(false);
       setError("Reset token is missing or invalid");
     } else {
       setTokenValid(true);
     }
-  }, [token]);
+  
 
   const {
     register,
@@ -58,7 +57,11 @@ export const ResetPasswordForm: React.FC = () => {
       await authApi.resetPassword(token, data.password);
       setIsSuccess(true);
     } catch (err: any) {
-      setError(err.message || "Failed to reset password");
+      if (err.status === 403) {
+        setError("Please verify your email address before resetting your password");
+      } else {
+        setError(err.message || "Failed to reset password");
+      }
     } finally {
       setIsSubmitting(false);
     }

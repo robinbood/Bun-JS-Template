@@ -58,7 +58,12 @@ export const registerRoute = {
         
       // Create and send verification email
       const verificationToken = await createEmailVerificationToken(newUser[0]!.id);
-      sendVerificationEmail(newUser[0]!.email, verificationToken);
+      try {
+        await sendVerificationEmail(newUser[0]!.email, verificationToken);
+      } catch (emailError) {
+        console.error("Failed to send verification email:", emailError);
+        // Continue with registration even if email fails
+      }
       
       return new Response(
         JSON.stringify({ 
