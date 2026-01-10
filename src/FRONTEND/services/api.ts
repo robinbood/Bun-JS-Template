@@ -157,50 +157,5 @@ export const authApi = {
 // Utility functions for common operations
 export const apiUtils = {
   // Check if online
-  isOnline: () => navigator.onLine,
-  
-  // Handle offline state
-  handleOffline: (callback: () => void) => {
-    window.addEventListener('offline', callback);
-  },
-  
-  // Handle online state
-  handleOnline: (callback: () => void) => {
-    window.addEventListener('online', callback);
-  },
-  
-  // Create a request queue for offline mode
-  createRequestQueue: () => {
-    const queue: Array<() => Promise<any>> = [];
-    let isProcessing = false;
-    
-    return {
-      add: (request: () => Promise<any>) => {
-        queue.push(request);
-        if (!isProcessing && apiUtils.isOnline()) {
-          processQueue();
-        }
-      },
-      process: processQueue
-    };
-    
-    async function processQueue() {
-      if (isProcessing || queue.length === 0 || !apiUtils.isOnline()) return;
-      
-      isProcessing = true;
-      
-      while (queue.length > 0 && apiUtils.isOnline()) {
-        const request = queue.shift();
-        if (request) {
-          try {
-            await request();
-          } catch (error) {
-            console.error('Queued request failed:', error);
-          }
-        }
-      }
-      
-      isProcessing = false;
-    }
-  }
+  isOnline: () => navigator.onLine
 };
