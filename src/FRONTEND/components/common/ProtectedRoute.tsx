@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { Navigate, useLocation } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 
@@ -27,16 +27,20 @@ interface ProtectedRouteProps {
   requireEmailVerified?: boolean;
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
-  children, 
-  requireEmailVerified = false 
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
+  requireEmailVerified = false
 }) => {
   const { isAuthenticated, isLoading, user, refreshUser } = useAuth();
   const location = useLocation();
+  const hasRefreshed = useRef(false);
   
   useEffect(() => {
-    // Refresh user data when component mounts
-    refreshUser();
+    // Only refresh user data on first mount, not on every render
+    if (!hasRefreshed.current) {
+      refreshUser();
+      hasRefreshed.current = true;
+    }
   }, [refreshUser]);
   
   if (isLoading) {

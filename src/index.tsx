@@ -2,9 +2,13 @@ import { serve, SQL } from "bun";
 import index from "./index.html";
 import { drizzle } from "drizzle-orm/bun-sql";
 import { authRoutes } from "./BACKEND/routes";
+import { initializeRedis } from "./BACKEND/redis";
 
-const client = new SQL(process.env.DATABASE_URL!);
+const client = new SQL(process.env['DATABASE_URL']!);
 export const db = drizzle({ client });
+
+// Initialize Redis for session management
+initializeRedis().catch(console.error);
 
 const server = serve({
   routes: {

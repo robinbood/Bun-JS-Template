@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import type { ReactNode } from "react";
 import { authApi, ApiError } from "../services/api";
 
@@ -39,15 +39,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<number>(0);
   
-  const isAuthenticated = !!user;
+  // Memoize computed values to prevent unnecessary re-renders
+  const isAuthenticated = useMemo(() => !!user, [user]);
   
-  const clearError = () => setError(null);
+  const clearError = useCallback(() => setError(null), []);
   
-  const refreshUser = async () => {
+  // Cache user data and only refresh if necessary
+  const refreshUser = useCallback(async (force = false) => {
+    const now = Date.now();
+    // Only refresh if forced or if last refresh was more than 5 minutes ago
+    if (!force && lastRefresh && (now - lastRefresh) < 5 * 60 * 1000) {
+      return;
+    }
+    
     try {
+      setIsLoading(true);
       const response = await authApi.getCurrentUser();
       setUser(response.user);
+      setLastRefresh(now);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         // User is not authenticated, which is fine
@@ -59,15 +70,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [lastRefresh]);
   
-  const login = async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
     clearError();
     
     try {
       const response = await authApi.login(email, password);
       setUser(response.user);
+      setLastRefresh(Date.now());
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -78,9 +90,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [clearError]);
   
-  const register = async (name: string, email: string, password: string) => {
+  const register = useCallback(async (name: string, email: string, password: string) => {
     setIsLoading(true);
     clearError();
     
@@ -98,15 +110,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [clearError]);
   
-  const logout = async () => {
+  const logout = useCallback(async () => {
     setIsLoading(true);
     clearError();
     
     try {
       await authApi.logout();
       setUser(null);
+      setLastRefresh(0); // Reset last refresh time
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -116,14 +129,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [clearError]);
   
   useEffect(() => {
     // Check if user is already authenticated on app load
     refreshUser();
-  }, []);
+  }, [refreshUser]);
   
-  const value: AuthContextType = {
+  // Memoize context value to prevent unnecessary re-renders
+  const value: AuthContextType = useMemo(() => ({
     user,
     isLoading,
     isAuthenticated,
@@ -133,7 +147,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     refreshUser,
     error,
     clearError,
-  };
+  }), [user, isLoading, isAuthenticated, login, register, logout, refreshUser, error, clearError]);
   
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

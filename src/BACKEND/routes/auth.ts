@@ -1,92 +1,90 @@
-import { hashPassword, verifyPassword, validatePasswordStrength } from "../auth/password";
-import { createSession, invalidateSession, invalidateAllUserSessions, validateSession } from "../auth/session";
-import { createEmailVerificationToken, createPasswordResetToken, sendVerificationEmail, sendPasswordResetEmail } from "../auth/email";
-import { db } from "../../index";
-import { usersTable } from "../../DB/schema";
-import { eq } from "drizzle-orm";
+import { AuthService } from '../services/authService';
+import { handleError } from '../utils/errors';
+import { 
+  parseCookies, 
+  createApiResponse, 
+  createSessionCookie, 
+  createClearSessionCookie,
+  withPerformanceLogging,
+  rateLimitMiddleware,
+  extractSessionToken,
+  addRequestId,
+  logRequest,
+  logResponse,
+  validateContentType,
+  getSecurityHeaders
+} from '../utils';
+import {
+  registerSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  verifyEmailSchema,
+  type RegisterInput,
+  type LoginInput,
+  type ForgotPasswordInput,
+  type ResetPasswordInput,
+  type VerifyEmailInput
+} from '../validation/schemas';
 
-// Helper function to parse cookies
-const parseCookies = (cookieHeader: string): Record<string, string> => {
-  const cookies: Record<string, string> = {};
-  cookieHeader.split(";").forEach(cookie => {
-    const [name, value] = cookie.trim().split("=");
-    if (name && value) {
-      cookies[name] = value;
-    }
-  });
-  return cookies;
-};
+/**
+ * Auth routes with improved error handling and structure
+ */
 
 export const authRoutes = {
   // Register a new user
   "/api/auth/register": {
     async POST(req: Request) {
+      const startTime = Date.now();
+      const requestId = addRequestId()(req);
+      
       try {
-        const { email, password, name } = await req.json() as {
-          email: string;
-          password: string;
-          name: string;
-        };
+        // Log request
+        logRequest(req, requestId);
         
-        // Validate input
-        if (!email || !password || !name) {
-          return new Response(
-            JSON.stringify({ error: "Email, password, and name are required" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
+        // Apply middleware
+        const rateLimitResult = rateLimitMiddleware('register', 5, 15 * 60 * 1000)(req);
+        if (rateLimitResult instanceof Response) return rateLimitResult;
+        
+        const contentTypeResult = validateContentType()(req);
+        if (contentTypeResult instanceof Response) return contentTypeResult;
+        
+        // Parse and validate request body
+        const body = await req.json();
+        const validationResult = registerSchema.safeParse(body);
+        
+        if (!validationResult.success) {
+          const { statusCode, body: errorBody } = handleError(
+            new Error(validationResult.error.errors[0]?.message || "Validation failed")
           );
+          return new Response(JSON.stringify(errorBody), {
+            status: statusCode,
+            headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+          });
         }
         
-        if (!validatePasswordStrength(password)) {
-          return new Response(
-            JSON.stringify({ 
-              error: "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number" 
-            }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Check if user already exists
-        const existingUser = await db
-          .select()
-          .from(usersTable)
-          .where(eq(usersTable.email, email))
-          .limit(1);
-          
-        if (existingUser.length > 0) {
-          return new Response(
-            JSON.stringify({ error: "User with this email already exists" }),
-            { status: 409, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Hash password and create user
-        const passwordHash = await hashPassword(password);
-        const newUser = await db
-          .insert(usersTable)
-          .values({
-            name,
-            email,
-            passwordHash,
-            age: 0, // Default age since it's required in the schema
-          })
-          .returning({ id: usersTable.id, email: usersTable.email });
-          
-        // Create and send verification email
-        const verificationToken = await createEmailVerificationToken(newUser[0]!.id);
-        sendVerificationEmail(newUser[0]!.email, verificationToken);
-        
-        return new Response(
-          JSON.stringify({ 
-            message: "User registered successfully. Please check your email to verify your account." 
-          }),
-          { status: 201, headers: { "Content-Type": "application/json" } }
+        // Register user using service layer
+        const result = await withPerformanceLogging(
+          "user_registration",
+          () => AuthService.register(validationResult.data as RegisterInput)
         );
+        
+        // Create response
+        const response = createApiResponse(result, 201, getSecurityHeaders());
+        
+        // Log response
+        logResponse(req, response, requestId, startTime);
+        
+        return response;
       } catch (error) {
-        console.error("Registration error:", error);
-        return new Response(
-          JSON.stringify({ error: "Internal server error" }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
+        const { statusCode, body } = handleError(error);
+        const response = new Response(JSON.stringify(body), {
+          status: statusCode,
+          headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+        });
+        
+        logResponse(req, response, requestId, startTime);
+        return response;
       }
     },
   },
@@ -94,72 +92,68 @@ export const authRoutes = {
   // Login user
   "/api/auth/login": {
     async POST(req: Request) {
+      const startTime = Date.now();
+      const requestId = addRequestId()(req);
+      
       try {
-        const { email, password } = await req.json() as {
-          email: string;
-          password: string;
+        // Log request
+        logRequest(req, requestId);
+        
+        // Apply middleware
+        const rateLimitResult = rateLimitMiddleware('login', 10, 15 * 60 * 1000)(req);
+        if (rateLimitResult instanceof Response) return rateLimitResult;
+        
+        const contentTypeResult = validateContentType()(req);
+        if (contentTypeResult instanceof Response) return contentTypeResult;
+        
+        // Parse and validate request body
+        const body = await req.json();
+        const validationResult = loginSchema.safeParse(body);
+        
+        if (!validationResult.success) {
+          const { statusCode, body: errorBody } = handleError(
+            new Error(validationResult.error.errors[0]?.message || "Validation failed")
+          );
+          return new Response(JSON.stringify(errorBody), {
+            status: statusCode,
+            headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+          });
+        }
+        
+        // Login user using service layer
+        const result = await withPerformanceLogging(
+          "user_login",
+          () => AuthService.login(
+            (validationResult.data as LoginInput).email,
+            (validationResult.data as LoginInput).password
+          )
+        );
+        
+        // Create response with session cookie
+        const headers = {
+          "Content-Type": "application/json",
+          "Set-Cookie": createSessionCookie(result.sessionToken),
+          ...getSecurityHeaders(),
         };
         
-        // Validate input
-        if (!email || !password) {
-          return new Response(
-            JSON.stringify({ error: "Email and password are required" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
-          );
-        }
+        const response = createApiResponse({
+          message: "Login successful",
+          user: result.user
+        }, 200, headers);
         
-        // Find user
-        const user = await db
-          .select()
-          .from(usersTable)
-          .where(eq(usersTable.email, email))
-          .limit(1);
-          
-        if (user.length === 0) {
-          return new Response(
-            JSON.stringify({ error: "Invalid email or password" }),
-            { status: 401, headers: { "Content-Type": "application/json" } }
-          );
-        }
+        // Log response
+        logResponse(req, response, requestId, startTime);
         
-        // Verify password
-        const isPasswordValid = await verifyPassword(password, user[0]!.passwordHash);
-        if (!isPasswordValid) {
-          return new Response(
-            JSON.stringify({ error: "Invalid email or password" }),
-            { status: 401, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Create session
-        const sessionToken = await createSession(user[0]!.id);
-        
-        // Set session cookie
-        const headers = new Headers();
-        headers.set("Content-Type", "application/json");
-        headers.set(
-          "Set-Cookie",
-          `session-token=${sessionToken}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${7 * 24 * 60 * 60}` // 7 days
-        );
-        
-        return new Response(
-          JSON.stringify({
-            message: "Login successful",
-            user: {
-              id: user[0]!.id,
-              name: user[0]!.name,
-              email: user[0]!.email,
-              emailVerified: user[0]!.emailVerified,
-            }
-          }),
-          { status: 200, headers }
-        );
+        return response;
       } catch (error) {
-        console.error("Login error:", error);
-        return new Response(
-          JSON.stringify({ error: "Internal server error" }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
+        const { statusCode, body } = handleError(error);
+        const response = new Response(JSON.stringify(body), {
+          status: statusCode,
+          headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+        });
+        
+        logResponse(req, response, requestId, startTime);
+        return response;
       }
     },
   },
@@ -167,36 +161,67 @@ export const authRoutes = {
   // Logout user
   "/api/auth/logout": {
     async POST(req: Request) {
+      const startTime = Date.now();
+      const requestId = addRequestId()(req);
+      
       try {
-        const cookieHeader = req.headers.get("cookie");
-        if (!cookieHeader) {
-          return new Response(
-            JSON.stringify({ error: "No session cookie found" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
+        // Log request
+        logRequest(req, requestId);
+        
+        // Extract session token
+        let sessionToken: string | undefined;
+        try {
+          sessionToken = extractSessionToken(req);
+        } catch (error) {
+          // If no session token, just clear the cookie
+          const headers = {
+            "Content-Type": "application/json",
+            "Set-Cookie": createClearSessionCookie(),
+            ...getSecurityHeaders(),
+          };
+          
+          const response = createApiResponse(
+            { message: "Logout successful" },
+            200,
+            headers
           );
+          
+          logResponse(req, response, requestId, startTime);
+          return response;
         }
         
-        const cookies = parseCookies(cookieHeader);
-        const sessionToken = cookies["session-token"];
-        
-        if (sessionToken) {
-          await invalidateSession(sessionToken);
-        }
-        
-        const headers = new Headers();
-        headers.set("Content-Type", "application/json");
-        headers.set("Set-Cookie", "session-token=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
-        
-        return new Response(
-          JSON.stringify({ message: "Logout successful" }),
-          { status: 200, headers }
+        // Logout user using service layer
+        await withPerformanceLogging(
+          "user_logout",
+          () => AuthService.logout(sessionToken!)
         );
+        
+        // Create response with cleared session cookie
+        const headers = {
+          "Content-Type": "application/json",
+          "Set-Cookie": createClearSessionCookie(),
+          ...getSecurityHeaders(),
+        };
+        
+        const response = createApiResponse(
+          { message: "Logout successful" },
+          200,
+          headers
+        );
+        
+        // Log response
+        logResponse(req, response, requestId, startTime);
+        
+        return response;
       } catch (error) {
-        console.error("Logout error:", error);
-        return new Response(
-          JSON.stringify({ error: "Internal server error" }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
+        const { statusCode, body } = handleError(error);
+        const response = new Response(JSON.stringify(body), {
+          status: statusCode,
+          headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+        });
+        
+        logResponse(req, response, requestId, startTime);
+        return response;
       }
     },
   },
@@ -204,63 +229,42 @@ export const authRoutes = {
   // Get current user
   "/api/auth/me": {
     async GET(req: Request) {
+      const startTime = Date.now();
+      const requestId = addRequestId()(req);
+      
       try {
-        const cookieHeader = req.headers.get("cookie");
-        if (!cookieHeader) {
-          return new Response(
-            JSON.stringify({ error: "No session cookie found" }),
-            { status: 401, headers: { "Content-Type": "application/json" } }
-          );
-        }
+        // Log request
+        logRequest(req, requestId);
         
-        const cookies = parseCookies(cookieHeader);
-        const sessionToken = cookies["session-token"];
+        // Extract session token
+        const sessionToken = extractSessionToken(req);
         
-        if (!sessionToken) {
-          return new Response(
-            JSON.stringify({ error: "No session token found" }),
-            { status: 401, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Validate session using Redis
-        const session = await validateSession(sessionToken);
-        if (!session) {
-          return new Response(
-            JSON.stringify({ error: "Invalid or expired session" }),
-            { status: 401, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Get user data from database
-        const user = await db
-          .select({
-            id: usersTable.id,
-            name: usersTable.name,
-            email: usersTable.email,
-            emailVerified: usersTable.emailVerified,
-          })
-          .from(usersTable)
-          .where(eq(usersTable.id, session.userId))
-          .limit(1);
-          
-        if (user.length === 0) {
-          return new Response(
-            JSON.stringify({ error: "User not found" }),
-            { status: 404, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        
-        return new Response(
-          JSON.stringify({ user: user[0] }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+        // Get current user using service layer
+        const user = await withPerformanceLogging(
+          "get_current_user",
+          () => AuthService.getCurrentUser(sessionToken)
         );
+        
+        // Create response
+        const response = createApiResponse(
+          { user },
+          200,
+          getSecurityHeaders()
+        );
+        
+        // Log response
+        logResponse(req, response, requestId, startTime);
+        
+        return response;
       } catch (error) {
-        console.error("Get current user error:", error);
-        return new Response(
-          JSON.stringify({ error: "Internal server error" }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
+        const { statusCode, body } = handleError(error);
+        const response = new Response(JSON.stringify(body), {
+          status: statusCode,
+          headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+        });
+        
+        logResponse(req, response, requestId, startTime);
+        return response;
       }
     },
   },
@@ -268,58 +272,52 @@ export const authRoutes = {
   // Verify email
   "/api/auth/verify/:token": {
     async GET(req: Request) {
+      const startTime = Date.now();
+      const requestId = addRequestId()(req);
+      
       try {
+        // Log request
+        logRequest(req, requestId);
+        
+        // Extract token from URL
         const url = new URL(req.url);
         const token = url.pathname.split("/").pop();
         
-        if (!token) {
-          return new Response(
-            JSON.stringify({ error: "Verification token is required" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
+        // Validate token
+        const validationResult = verifyEmailSchema.safeParse({ token });
+        
+        if (!validationResult.success) {
+          const { statusCode, body } = handleError(
+            new Error(validationResult.error.errors[0]?.message || "Validation failed")
           );
+          return new Response(JSON.stringify(body), {
+            status: statusCode,
+            headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+          });
         }
         
-        const user = await db
-          .select()
-          .from(usersTable)
-          .where(eq(usersTable.emailVerificationToken, token))
-          .limit(1);
-          
-        if (user.length === 0) {
-          return new Response(
-            JSON.stringify({ error: "Invalid or expired verification token" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Check if token has expired
-        if (user[0]!.emailVerificationExpires && new Date() > user[0]!.emailVerificationExpires) {
-          return new Response(
-            JSON.stringify({ error: "Verification token has expired" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Verify email
-        await db
-          .update(usersTable)
-          .set({
-            emailVerified: true,
-            emailVerificationToken: null,
-            emailVerificationExpires: null,
-          })
-          .where(eq(usersTable.id, user[0]!.id));
-          
-        return new Response(
-          JSON.stringify({ message: "Email verified successfully" }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+        // Verify email using service layer
+        const result = await withPerformanceLogging(
+          "email_verification",
+          () => AuthService.verifyEmail(token!)
         );
+        
+        // Create response
+        const response = createApiResponse(result, 200, getSecurityHeaders());
+        
+        // Log response
+        logResponse(req, response, requestId, startTime);
+        
+        return response;
       } catch (error) {
-        console.error("Email verification error:", error);
-        return new Response(
-          JSON.stringify({ error: "Internal server error" }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
+        const { statusCode, body } = handleError(error);
+        const response = new Response(JSON.stringify(body), {
+          status: statusCode,
+          headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+        });
+        
+        logResponse(req, response, requestId, startTime);
+        return response;
       }
     },
   },
@@ -327,33 +325,56 @@ export const authRoutes = {
   // Forgot password
   "/api/auth/forgot-password": {
     async POST(req: Request) {
+      const startTime = Date.now();
+      const requestId = addRequestId()(req);
+      
       try {
-        const { email } = await req.json() as { email: string };
+        // Log request
+        logRequest(req, requestId);
         
-        if (!email) {
-          return new Response(
-            JSON.stringify({ error: "Email is required" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
+        // Apply middleware
+        const rateLimitResult = rateLimitMiddleware('forgot_password', 3, 60 * 60 * 1000)(req);
+        if (rateLimitResult instanceof Response) return rateLimitResult;
+        
+        const contentTypeResult = validateContentType()(req);
+        if (contentTypeResult instanceof Response) return contentTypeResult;
+        
+        // Parse and validate request body
+        const body = await req.json();
+        const validationResult = forgotPasswordSchema.safeParse(body);
+        
+        if (!validationResult.success) {
+          const { statusCode, body: errorBody } = handleError(
+            new Error(validationResult.error.errors[0]?.message || "Validation failed")
           );
+          return new Response(JSON.stringify(errorBody), {
+            status: statusCode,
+            headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+          });
         }
         
-        const resetToken = await createPasswordResetToken(email);
-        
-        if (resetToken) {
-          sendPasswordResetEmail(email, resetToken);
-        }
-        
-        // Always return success to prevent email enumeration attacks
-        return new Response(
-          JSON.stringify({ message: "If an account with this email exists, a password reset link has been sent" }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+        // Send password reset email using service layer
+        const result = await withPerformanceLogging(
+          "forgot_password",
+          () => AuthService.forgotPassword((validationResult.data as ForgotPasswordInput).email)
         );
+        
+        // Create response
+        const response = createApiResponse(result, 200, getSecurityHeaders());
+        
+        // Log response
+        logResponse(req, response, requestId, startTime);
+        
+        return response;
       } catch (error) {
-        console.error("Forgot password error:", error);
-        return new Response(
-          JSON.stringify({ error: "Internal server error" }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
+        const { statusCode, body } = handleError(error);
+        const response = new Response(JSON.stringify(body), {
+          status: statusCode,
+          headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+        });
+        
+        logResponse(req, response, requestId, startTime);
+        return response;
       }
     },
   },
@@ -361,74 +382,58 @@ export const authRoutes = {
   // Reset password
   "/api/auth/reset-password": {
     async POST(req: Request) {
+      const startTime = Date.now();
+      const requestId = addRequestId()(req);
+      
       try {
-        const { token, newPassword } = await req.json() as {
-          token: string;
-          newPassword: string;
-        };
+        // Log request
+        logRequest(req, requestId);
         
-        if (!token || !newPassword) {
-          return new Response(
-            JSON.stringify({ error: "Token and new password are required" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
+        // Apply middleware
+        const rateLimitResult = rateLimitMiddleware('reset_password', 3, 60 * 60 * 1000)(req);
+        if (rateLimitResult instanceof Response) return rateLimitResult;
+        
+        const contentTypeResult = validateContentType()(req);
+        if (contentTypeResult instanceof Response) return contentTypeResult;
+        
+        // Parse and validate request body
+        const body = await req.json();
+        const validationResult = resetPasswordSchema.safeParse(body);
+        
+        if (!validationResult.success) {
+          const { statusCode, body: errorBody } = handleError(
+            new Error(validationResult.error.errors[0]?.message || "Validation failed")
           );
+          return new Response(JSON.stringify(errorBody), {
+            status: statusCode,
+            headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+          });
         }
         
-        if (!validatePasswordStrength(newPassword)) {
-          return new Response(
-            JSON.stringify({ 
-              error: "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number" 
-            }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
-          );
-        }
+        const { token, newPassword } = validationResult.data as ResetPasswordInput;
         
-        const user = await db
-          .select()
-          .from(usersTable)
-          .where(eq(usersTable.passwordResetToken, token))
-          .limit(1);
-          
-        if (user.length === 0) {
-          return new Response(
-            JSON.stringify({ error: "Invalid or expired reset token" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Check if token has expired
-        if (user[0]!.passwordResetExpires && new Date() > user[0]!.passwordResetExpires) {
-          return new Response(
-            JSON.stringify({ error: "Reset token has expired" }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        
-        // Hash new password and update user
-        const passwordHash = await hashPassword(newPassword);
-        
-        await db
-          .update(usersTable)
-          .set({
-            passwordHash,
-            passwordResetToken: null,
-            passwordResetExpires: null,
-          })
-          .where(eq(usersTable.id, user[0]!.id));
-          
-        // Invalidate all existing sessions for this user
-        await invalidateAllUserSessions(user[0]!.id);
-          
-        return new Response(
-          JSON.stringify({ message: "Password reset successfully" }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+        // Reset password using service layer
+        const result = await withPerformanceLogging(
+          "reset_password",
+          () => AuthService.resetPassword(token, newPassword)
         );
+        
+        // Create response
+        const response = createApiResponse(result, 200, getSecurityHeaders());
+        
+        // Log response
+        logResponse(req, response, requestId, startTime);
+        
+        return response;
       } catch (error) {
-        console.error("Reset password error:", error);
-        return new Response(
-          JSON.stringify({ error: "Internal server error" }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
+        const { statusCode, body } = handleError(error);
+        const response = new Response(JSON.stringify(body), {
+          status: statusCode,
+          headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() }
+        });
+        
+        logResponse(req, response, requestId, startTime);
+        return response;
       }
     },
   },
