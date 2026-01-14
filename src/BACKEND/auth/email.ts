@@ -2,8 +2,8 @@ import { randomBytes } from "crypto";
 import { db } from "../../index";
 import { usersTable } from "../../DB/schema";
 import { eq } from "drizzle-orm";
-import { redis } from "bun";
 import Mailjet from 'node-mailjet';
+import type { Email } from 'node-mailjet';
 
 // Type definitions for better type safety
 interface EmailConfig {
@@ -28,11 +28,11 @@ interface EmailPayload {
 
 // Email configuration with validation
 const getEmailConfig = (): EmailConfig => {
-  const apiKey = process.env.MAILJET_API_KEY;
-  const secretKey = process.env.MAILJET_SECRET_KEY;
-  const senderEmail = process.env.SENDER_EMAIL || "noreply@yourdomain.com";
-  const senderName = process.env.SENDER_NAME || "Your App Name";
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+  const apiKey = process.env['MAILJET_API_KEY'];
+  const secretKey = process.env['MAILJET_SECRET_KEY'];
+  const senderEmail = process.env['SENDER_EMAIL'] || "noreply@yourdomain.com";
+  const senderName = process.env['SENDER_NAME'] || "Your App Name";
+  const frontendUrl = process.env['FRONTEND_URL'] || "http://localhost:3000";
 
   if (!apiKey || !secretKey) {
     throw new Error("Mailjet API credentials are not configured");
@@ -48,12 +48,12 @@ const getEmailConfig = (): EmailConfig => {
 };
 
 // Initialize Mailjet client with lazy loading
-let mailjetClient: Mailjet.Client | null = null;
+let mailjetClient: Email.Client | null = null;
 
-const getMailjetClient = (): Mailjet.Client => {
+const getMailjetClient = (): Email.Client => {
   if (!mailjetClient) {
     const { apiKey, secretKey } = getEmailConfig();
-    mailjetClient = Mailjet.apiConnect(apiKey, secretKey);
+    mailjetClient = Mailjet.connect(apiKey, secretKey);
   }
   return mailjetClient;
 };
