@@ -1,4 +1,4 @@
-import { hashPassword, verifyPassword, validatePasswordStrength } from '../auth/password';
+import { validatePasswordStrength } from '../auth/password';
 import { createSession, invalidateSession, invalidateAllUserSessions, validateSession } from '../auth/session';
 import { createEmailVerificationToken, createPasswordResetToken, sendVerificationEmail, sendPasswordResetEmail } from '../auth/email';
 import { db } from '../../index';
@@ -40,7 +40,9 @@ export class AuthService {
     }
     
     // Hash password and create user
-    const passwordHash = await hashPassword(password);
+    const passwordHash = await Bun.password.hash(password,{
+      algorithm:"argon2id"
+    });
     const newUser = await db
       .insert(usersTable)
       .values({
@@ -80,7 +82,7 @@ export class AuthService {
     }
     
     // Verify password
-    const isPasswordValid = await verifyPassword(password, user[0]!.passwordHash);
+    const isPasswordValid = await Bun.password.verify(password, user[0]!.passwordHash);
     if (!isPasswordValid) {
       throw ErrorFactory.authentication('Invalid email or password');
     }
@@ -222,7 +224,9 @@ export class AuthService {
     }
     
     // Hash new password and update user
-    const passwordHash = await hashPassword(newPassword);
+    const passwordHash = await Bun.password.hash(newPassword,{
+      algorithm:"argon2id"
+    });
     
     await db
       .update(usersTable)

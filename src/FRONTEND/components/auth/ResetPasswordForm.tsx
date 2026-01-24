@@ -179,7 +179,7 @@ export const ResetPasswordForm: React.FC = () => {
                 id="confirmPassword"
                 type="password"
                 placeholder="Confirm your new password"
-                {...register("confirmPassword")}
+                {...register("confirmPassword",{validate: (value) => value === password})}
               />
               {errors.confirmPassword && (
                 <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>

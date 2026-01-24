@@ -1,4 +1,3 @@
-import { randomBytes } from "crypto";
 import { validateSession, createSession, invalidateSession } from "./session";
 import { parseCookies } from "../utils";
 

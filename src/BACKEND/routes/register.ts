@@ -1,4 +1,4 @@
-import { hashPassword, validatePasswordStrength } from "../auth/password";
+import {  validatePasswordStrength } from "../auth/password";
 import { createEmailVerificationToken, sendVerificationEmail } from "../auth/email";
 import { db } from "../../index";
 import { usersTable } from "../../DB/schema";
@@ -45,7 +45,7 @@ export const registerRoute = {
       }
       
       // Hash password and create user
-      const passwordHash = await hashPassword(password);
+      const passwordHash = await Bun.password.hash(password);
       const newUser = await db
         .insert(usersTable)
         .values({

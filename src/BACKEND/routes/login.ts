@@ -1,4 +1,3 @@
-import { verifyPassword } from "../auth/password";
 import { createSession } from "../auth/session";
 import { db } from "../../index";
 import { usersTable } from "../../DB/schema";
@@ -35,7 +34,7 @@ export const loginRoute = {
       }
       
       // Verify password
-      const isPasswordValid = await verifyPassword(password, user[0]!.passwordHash);
+      const isPasswordValid = await Bun.password.verify(password, user[0]!.passwordHash);
       if (!isPasswordValid) {
         return new Response(
           JSON.stringify({ error: "Invalid email or password" }),

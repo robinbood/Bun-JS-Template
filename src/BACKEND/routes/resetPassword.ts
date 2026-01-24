@@ -1,4 +1,4 @@
-import { hashPassword, validatePasswordStrength } from "../auth/password";
+import {  validatePasswordStrength } from "../auth/password";
 import { invalidateAllUserSessions } from "../auth/session";
 import { db } from "../../index";
 import { usersTable } from "../../DB/schema";
@@ -58,7 +58,9 @@ export const resetPasswordRoute = {
       }
       
       // Hash new password and update user
-      const passwordHash = await hashPassword(newPassword);
+      const passwordHash = await Bun.password.hash(newPassword,{
+        algorithm:"argon2id"
+      });
       
       await db
         .update(usersTable)

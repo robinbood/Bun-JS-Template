@@ -30,7 +30,8 @@ export const ForgotPasswordForm: React.FC = () => {
     setError(null);
     
     try {
-      await authApi.forgotPassword(data.email);
+      const { email } = data;
+      await authApi.forgotPassword(email);
       setIsSuccess(true);
     } catch (err: any) {
       setError(err.message || "Failed to send reset email");

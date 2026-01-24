@@ -139,7 +139,7 @@ export const logRequest = (req: Request, requestId?: string) => {
 };
 
 // Middleware to log responses
-export const logResponse = (req: Request, response: Response, requestId?: string, startTime?: number) => {
+export const logResponse = (_req: Request, response: Response, requestId?: string, startTime?: number) => {
   const timestamp = new Date().toISOString();
   const statusCode = response.status;
   const duration = startTime ? `${Date.now() - startTime}ms` : "unknown";

@@ -5,19 +5,7 @@ import zxcvbn from 'zxcvbn';
  * @param password - Plain text password to hash
  * @returns Promise resolving to the hashed password
  */
-export const hashPassword = async (password: string): Promise<string> => {
-  return await Bun.password.hash(password);
-};
 
-/**
- * Verifies a password against its hash
- * @param password - Plain text password to verify
- * @param hash - Hash to verify against
- * @returns Promise resolving to boolean indicating if password matches
- */
-export const verifyPassword = async (password: string, hash: string): Promise<boolean> => {
-  return await Bun.password.verify(password, hash);
-};
 
 /**
  * Validates password strength using zxcvbn
