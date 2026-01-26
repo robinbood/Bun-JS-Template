@@ -50,7 +50,7 @@ export const loginRoute = {
       headers.set("Content-Type", "application/json");
       headers.set(
         "Set-Cookie",
-        `session-token=${sessionToken}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${7 * 24 * 60 * 60}` // 7 days
+        `session-token=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}` // 7 days
       );
       
       return new Response(

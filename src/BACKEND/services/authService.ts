@@ -116,29 +116,19 @@ export class AuthService {
    * @returns Promise resolving to user data
    */
   static async getCurrentUser(sessionToken: string) {
-    // Validate session
+    // Validate session (returns user data directly from Redis)
     const session = await validateSession(sessionToken);
     if (!session) {
       throw ErrorFactory.authentication('Invalid or expired session');
     }
     
-    // Get user data from database
-    const user = await db
-      .select({
-        id: usersTable.id,
-        name: usersTable.name,
-        email: usersTable.email,
-        emailVerified: usersTable.emailVerified,
-      })
-      .from(usersTable)
-      .where(eq(usersTable.id, session.userId))
-      .limit(1);
-      
-    if (user.length === 0) {
-      throw ErrorFactory.notFound('User');
-    }
-    
-    return user[0];
+    // Return user data directly from session (already stored in Redis)
+    return {
+      id: session.userId,
+      email: session.email,
+      name: session.name,
+      emailVerified: session.emailVerified,
+    };
   }
   
   /**

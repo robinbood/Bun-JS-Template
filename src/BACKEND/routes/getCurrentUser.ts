@@ -1,12 +1,8 @@
-import { db } from "../../index";
-import { usersTable } from "../../DB/schema";
-import { eq } from "drizzle-orm";
 import { validateSession } from "../auth/session";
 import {
   parseCookies,
   createApiResponse,
   createErrorResponse,
-  withPerformanceLogging,
   getSecurityHeaders
 } from "../utils";
 
@@ -33,7 +29,7 @@ export const getCurrentUserRoute = {
         );
       }
       
-      // Validate session using Redis
+      // Validate session using Redis (returns user data directly)
       const session = await validateSession(sessionToken);
       if (!session) {
         return createErrorResponse(
@@ -43,31 +39,9 @@ export const getCurrentUserRoute = {
         );
       }
       
-      // Get user data from database
-      const user = await withPerformanceLogging(
-        "get_user_data",
-        () => db
-          .select({
-            id: usersTable.id,
-            name: usersTable.name,
-            email: usersTable.email,
-            emailVerified: usersTable.emailVerified,
-          })
-          .from(usersTable)
-          .where(eq(usersTable.id, session.userId))
-          .limit(1)
-      );
-        
-      if (user.length === 0) {
-        return createErrorResponse(
-          "User not found",
-          404,
-          getSecurityHeaders()
-        );
-      }
-      
+      // Return user data directly from session (already stored in Redis)
       return createApiResponse(
-        { user: user[0] },
+        { user: { id: session.userId, email: session.email, name: session.name, emailVerified: session.emailVerified } },
         200,
         getSecurityHeaders()
       );
